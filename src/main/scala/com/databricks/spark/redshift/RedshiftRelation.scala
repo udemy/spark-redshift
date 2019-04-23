@@ -139,25 +139,7 @@ private[redshift] case class RedshiftRelation(
       }
       // Read the MANIFEST file to get the list of S3 part files that were written by Redshift.
       // We need to use a manifest in order to guard against S3's eventually-consistent listings.
-      val filesToRead: Seq[String] = {
-        val cleanedTempDirUri =
-          Utils.fixS3Url(Utils.removeCredentialsFromURI(URI.create(tempDir)).toString)
-        val s3URI = Utils.createS3URI(cleanedTempDirUri)
-        val s3Client = s3ClientFactory(creds)
-        val is = s3Client.getObject(s3URI.getBucket, s3URI.getKey + "manifest").getObjectContent
-        val s3Files = try {
-          val entries = Json.parse(new InputStreamReader(is)).asObject().get("entries").asArray()
-          entries.iterator().asScala.map(_.asObject().get("url").asString()).toSeq
-        } finally {
-          is.close()
-        }
-        // The filenames in the manifest are of the form s3://bucket/key, without credentials.
-        // If the S3 credentials were originally specified in the tempdir's URI, then we need to
-        // reintroduce them here
-        s3Files.map { file =>
-          tempDir.stripSuffix("/") + '/' + file.stripPrefix(cleanedTempDirUri).stripPrefix("/")
-        }
-      }
+      val filesToRead: Seq[String] = Utils.extractFiles(s3ClientFactory(creds), tempDir)
 
       val prunedSchema = pruneSchema(schema, requiredColumns)
 

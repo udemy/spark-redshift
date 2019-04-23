@@ -16,14 +16,15 @@
 
 package com.databricks.spark.redshift
 
+import java.io.InputStreamReader
 import java.net.URI
 import java.util.UUID
 
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
-
-import com.amazonaws.services.s3.{AmazonS3URI, AmazonS3Client}
+import com.amazonaws.services.s3.{AmazonS3Client, AmazonS3URI}
 import com.amazonaws.services.s3.model.BucketLifecycleConfiguration
+import com.eclipsesource.json.Json
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.slf4j.LoggerFactory
@@ -31,7 +32,7 @@ import org.slf4j.LoggerFactory
 /**
  * Various arbitrary helper functions
  */
-private[redshift] object Utils {
+object Utils {
 
   private val log = LoggerFactory.getLogger(getClass)
 
@@ -203,5 +204,31 @@ private[redshift] object Utils {
       case regionRegex(region) => Some(region)
       case _ => None
     }
+  }
+
+  def extractFiles(s3Client: AmazonS3Client, tempDir: String)
+  : Seq[String] = {
+
+    val cleanedTempDirUri = Utils
+      .fixS3Url(
+        Utils.removeCredentialsFromURI(URI.create(tempDir)).toString
+      )
+    val s3URI = Utils.createS3URI(cleanedTempDirUri)
+    val is = s3Client
+      .getObject(s3URI.getBucket, s3URI.getKey + "manifest")
+      .getObjectContent
+    val s3Files = try {
+      val entries = Json.parse(new InputStreamReader(is)).asObject().get("entries").asArray()
+      entries.iterator().asScala.map(_.asObject().get("url").asString()).toSeq
+    } finally {
+      is.close()
+    }
+    // The filenames in the manifest are of the form s3://bucket/key, without credentials.
+    // If the S3 credentials were originally specified in the tempdir's URI, then we need to
+    // reintroduce them here
+    s3Files.map { file =>
+      tempDir.stripSuffix("/") + '/' + file.stripPrefix(cleanedTempDirUri).stripPrefix("/")
+    }
+
   }
 }

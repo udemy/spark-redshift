@@ -120,9 +120,14 @@ private[redshift] object Parameters {
     def nullString: String = parameters("csvnullstring")
 
     /**
-     * Creates a per-query subdirectory in the [[rootTempDir]], with a random UUID.
-     */
-    def createPerQueryTempDir(): String = Utils.makeTempPath(rootTempDir)
+      * Creates a per-query subdirectory in the [[rootTempDir]], with a random UUID.
+      */
+    def createPerQueryTempDir(): String = {
+      parameters.get("temppath") match {
+        case None => Utils.makeTempPath(rootTempDir)
+        case Some(path) => Utils.joinUrls(rootTempDir, path)
+      }
+    }
 
     /**
      * The Redshift table to be used as the target when loading or writing data.
